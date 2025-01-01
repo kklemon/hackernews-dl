@@ -64,7 +64,7 @@ def main(
 
     if ignore_existing:
         existing_ids = np.array(get_existing_ids(engine))
-        indices_to_delete = np.where(np.in1d(item_ids, existing_ids))[0]
+        indices_to_delete = np.where(np.isin(item_ids, existing_ids))[0]
         item_ids = np.delete(item_ids, indices_to_delete)
 
         print(f"Skipping {len(existing_ids)} items as they already exist in the database")
