@@ -48,3 +48,9 @@ The items will be followed in a table with the following schema:
 | descendants | `int`           | Number of descendants of the item (comments).                        |
 
 All fields except **id** are optional.
+
+Ideas for improvement
+---------------------
+
+* All IDs to download are submitted at once to the executor which may result in unncessary high memory usage. We should instead start n download workers which pop IDs from a shared queue.
+* Move writing and committing to the workers to aleviate the bottleneck in the main thread.
