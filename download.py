@@ -24,7 +24,7 @@ def get_existing_ids(engine):
 
 def main(
     db: str = "sqlite:///hackernews.db",
-    parallel_downloads: int = 128,
+    parallel_downloads: int = 16,
     max_items: int | None = None,
     descending: bool = True,
     ignore_existing: bool = True,
