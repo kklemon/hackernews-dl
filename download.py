@@ -85,7 +85,7 @@ def main(
                     except:
                         failure += 1
 
-                    pbar.set_postfix(OrderedDict(succ=success, fail=failure))
+                    pbar.set_postfix(OrderedDict(ok=success, fail=failure))
                     pbar.update(1)
             finally:
                 session.commit()
