@@ -1,40 +1,20 @@
-from typing import Optional
 import typer
 import json
 import numpy as np
 from tqdm import tqdm
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from sqlmodel import Field, SQLModel, Session, create_engine, select
+from sqlmodel import SQLModel, Session, create_engine, select
 from hn_sdk.client.v0.client import get_item_by_id, get_max_item_id
+from hackernews_dl import utils
+from hackernews_dl.models import HackerNewsItem
 
-
-class HackerNewsItem(SQLModel, table=True):
-    id: int = Field(primary_key=True)
-    deleted: Optional[bool] = None
-    type: Optional[str] = None
-    time: Optional[int] = None
-    by: Optional[str] = None
-    text: Optional[str] = None
-    dead: Optional[bool] = None
-    parent: Optional[int] = None
-    poll: Optional[int] = None
-    url: Optional[str] = None
-    score: Optional[int] = None
-    title: Optional[str] = None
-    descendants: Optional[int] = None
 
 
 def download_and_save_item(item_id, item_folder):
     item = get_item_by_id(item_id)
     item_path = item_folder / f"{item_id}.json"
     item_path.write_text(json.dumps(item))
-
-
-def remove_keys(d: dict, remove_keys):
-    for key in remove_keys:
-        d.pop(key, None)
-    return d
 
 
 def get_existing_ids(engine):
@@ -79,7 +59,7 @@ def main(
                 for future in as_completed(futures):
                     try:
                         item_dict = future.result()
-                        item = HackerNewsItem(**remove_keys(item_dict, ["kids", "parts"]))
+                        item = HackerNewsItem(**utils.remove_keys(item_dict, ["kids", "parts"]))
                         session.add(item)
                         success += 1
                     except:
