@@ -64,16 +64,10 @@ def main(
             for future in as_completed(futures):
                 try:
                     item_dict = future.result()
-        with tqdm(total=len(item_ids)) as pbar, Session(engine) as session:
-            try:
-                for future in as_completed(futures):
-                    try:
-                        item_dict = future.result()
-                        item = HackerNewsItem(**utils.remove_keys(item_dict, ["kids", "parts"]))
-                        session.add(item)
-                        success += 1
-                    except:
-                        failure += 1
+                    item = HackerNewsItem(
+                        parent_id=item_dict.pop("parent", None),
+                        **utils.remove_keys(item_dict, ["kids", "parts", "parent"]),
+                    )
                     session.add(item)
                     
                     success += 1
