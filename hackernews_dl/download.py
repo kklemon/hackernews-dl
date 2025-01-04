@@ -21,7 +21,7 @@ def get_existing_ids(engine):
         return session.exec(select(HackerNewsItem.id)).all()
 
 
-def main(
+def download(
     db: str = "sqlite:///hackernews.db",
     parallel_downloads: int = 16,
     max_items: int | None = None,
@@ -92,5 +92,9 @@ def main(
             session.commit()
 
 
+def main():
+    typer.run(download)
+
+
 if __name__ == "__main__":
-    typer.run(main)
+    main()

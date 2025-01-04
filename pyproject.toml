@@ -12,5 +12,8 @@ dependencies = [
     "typer>=0.15.1",
 ]
 
+[project.scripts]
+hackernews-dl = "hackernews_dl.download:main"
+
 [tool.ruff]
 line-length = 100
