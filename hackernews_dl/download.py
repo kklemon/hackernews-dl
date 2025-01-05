@@ -57,7 +57,7 @@ def download(
         futures = []
 
         try:
-            for item_id in item_ids:
+            for item_id in item_ids.tolist():
                 futures.append(executor.submit(get_item_by_id, item_id))
 
             success = failure = 0
