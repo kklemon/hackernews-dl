@@ -80,7 +80,7 @@ def download(
                     failure += 1
 
                     if log_errors:
-                        print(f"Error: {e}")
+                        print(f"Error: {str(e)}")
 
                 if num_uncommitted % commit_every == 0:
                     num_uncommitted = 0
@@ -105,6 +105,7 @@ def main(
     descending: bool = True,
     ignore_existing: bool = True,
     commit_every: int = 1024,
+    log_errors: bool = False,
 ):
     engine = create_engine(db)
     SQLModel.metadata.create_all(engine)
@@ -118,10 +119,15 @@ def main(
             descending=descending,
             ignore_existing=ignore_existing,
             commit_every=commit_every,
+            log_errors=log_errors,
         )
     finally:
         engine.dispose()
 
 
-if __name__ == "__main__":
+def run():
     typer.run(main)
+
+
+if __name__ == "__main__":
+    run()
