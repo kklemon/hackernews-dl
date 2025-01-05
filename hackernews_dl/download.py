@@ -1,3 +1,4 @@
+from sqlalchemy import Engine
 import typer
 import json
 import numpy as np
@@ -22,7 +23,7 @@ def get_existing_ids(engine):
 
 
 def download(
-    db: str = "sqlite:///hackernews.db",
+    db: Engine,
     parallel_downloads: int = 16,
     max_items: int | None = None,
     min_item_id: int | None = None,
@@ -30,9 +31,6 @@ def download(
     ignore_existing: bool = True,
     commit_every: int = 1024,
 ):
-    engine = create_engine(db)
-    SQLModel.metadata.create_all(engine)
-
     max_item_id = get_max_item_id()
 
     item_ids = np.arange(min_item_id or 1, max_item_id)
@@ -44,7 +42,7 @@ def download(
         item_ids = item_ids[:max_items]
 
     if ignore_existing:
-        existing_ids = np.array(get_existing_ids(engine))
+        existing_ids = np.array(get_existing_ids(db))
         indices_to_delete = np.where(np.isin(item_ids, existing_ids))[0]
         item_ids = np.delete(item_ids, indices_to_delete)
 
@@ -53,11 +51,14 @@ def download(
     with (
         ThreadPoolExecutor(max_workers=parallel_downloads) as executor,
         tqdm(total=len(item_ids)) as pbar,
-        Session(engine) as session,
+        Session(db) as session,
     ):
-        futures = [executor.submit(get_item_by_id, item_id) for item_id in item_ids.tolist()]
+        futures = []
 
         try:
+            for item_id in item_ids:
+                futures.append(executor.submit(get_item_by_id, item_id))
+
             success = failure = 0
             num_uncommitted = 0
 
@@ -92,9 +93,31 @@ def download(
             session.commit()
 
 
-def main():
-    typer.run(download)
+def main(
+    db: str = "sqlite:///hackernews.db",
+    parallel_downloads: int = 16,
+    max_items: int | None = None,
+    min_item_id: int | None = None,
+    descending: bool = True,
+    ignore_existing: bool = True,
+    commit_every: int = 1024,
+):
+    engine = create_engine(db)
+    SQLModel.metadata.create_all(engine)
+
+    try:
+        download(
+            db=engine,
+            parallel_downloads=parallel_downloads,
+            max_items=max_items,
+            min_item_id=min_item_id,
+            descending=descending,
+            ignore_existing=ignore_existing,
+            commit_every=commit_every,
+        )
+    finally:
+        engine.dispose()
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
