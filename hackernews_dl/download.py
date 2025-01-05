@@ -30,6 +30,7 @@ def download(
     descending: bool = True,
     ignore_existing: bool = True,
     commit_every: int = 1024,
+    log_errors: bool = False,
 ):
     max_item_id = get_max_item_id()
 
@@ -75,8 +76,11 @@ def download(
                     num_uncommitted += 1
                 except KeyboardInterrupt:
                     raise
-                except:
+                except Exception as e:
                     failure += 1
+
+                    if log_errors:
+                        print(f"Error: {e}")
 
                 if num_uncommitted % commit_every == 0:
                     num_uncommitted = 0
