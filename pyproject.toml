@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hackernews-dl = "hackernews_dl.download:main"
+hackernews-dl = "hackernews_dl.download:run"
 
 [tool.ruff]
 line-length = 100
