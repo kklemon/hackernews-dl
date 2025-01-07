@@ -1,6 +1,5 @@
 from typing import Optional
-from sqlalchemy.orm import backref
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, SQLModel
 
 
 class HackerNewsItem(SQLModel, table=True):
@@ -13,13 +12,8 @@ class HackerNewsItem(SQLModel, table=True):
     by: Optional[str] = None
     text: Optional[str] = None
     dead: Optional[bool] = None
-    parent_id: Optional[int] = Field(default=None, foreign_key="hackernewsitem.id")
+    parent_id: Optional[int] = None
     poll: Optional[int] = None
-    kids: list["HackerNewsItem"] = Relationship(
-        sa_relationship_kwargs=dict(
-            backref=backref("parent", remote_side="HackerNewsItem.id"),
-        ),
-    )
     url: Optional[str] = None
     score: Optional[int] = None
     title: Optional[str] = None
