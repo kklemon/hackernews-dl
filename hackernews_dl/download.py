@@ -1,128 +1,141 @@
+import asyncio
 from sqlalchemy import Engine
 import typer
-import json
-import numpy as np
+from aiohttp import ClientSession
 from tqdm import tqdm
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from sqlmodel import SQLModel, Session, create_engine, select
-from hn_sdk.client.v0.client import get_item_by_id, get_max_item_id
+from sqlmodel import SQLModel, create_engine, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine
 from hackernews_dl import utils
+from hackernews_dl.hn import HackerNewsClient
 from hackernews_dl.models import HackerNewsItem
 
 
-def download_and_save_item(item_id, item_folder):
-    item = get_item_by_id(item_id)
-    item_path = item_folder / f"{item_id}.json"
-    item_path.write_text(json.dumps(item))
+async def get_existing_ids(session):
+    result = await session.exec(select(HackerNewsItem.id))
+    return result.all()
 
 
-def get_existing_ids(engine):
-    with Session(engine) as session:
-        return session.exec(select(HackerNewsItem.id)).all()
-
-
-def download(
+async def download(
     db: Engine,
-    parallel_downloads: int = 16,
+    concurrent_workers: int | None = 64,
     max_items: int | None = None,
     min_item_id: int | None = None,
     descending: bool = True,
-    ignore_existing: bool = True,
-    commit_every: int = 1024,
+    update_existing: bool = False,
+    commit_every: int = 10_000,
     log_errors: bool = False,
 ):
-    max_item_id = get_max_item_id()
+    make_session = sessionmaker(db, class_=AsyncSession, expire_on_commit=False, autoflush=False)
 
-    item_ids = np.arange(min_item_id or 1, max_item_id)
+    async with ClientSession() as http_session:
+        hn = HackerNewsClient(session=http_session)
 
-    if descending:
-        item_ids = np.flip(item_ids)
+        max_item_id = await hn.get_max_item_id()
 
-    if max_items:
-        item_ids = item_ids[:max_items]
+        item_ids = list(range(min_item_id or 1, max_item_id))
 
-    if ignore_existing:
-        existing_ids = np.array(get_existing_ids(db))
-        indices_to_delete = np.where(np.isin(item_ids, existing_ids))[0]
-        item_ids = np.delete(item_ids, indices_to_delete)
+        if descending:
+            item_ids = item_ids[::-1]
 
-        print(f"Skipping {len(existing_ids):,} items as they already exist in the database")
+        if max_items:
+            item_ids = item_ids[:max_items]
 
-    with (
-        ThreadPoolExecutor(max_workers=parallel_downloads) as executor,
-        tqdm(total=len(item_ids)) as pbar,
-        Session(db) as session,
-    ):
-        futures = []
+        async with make_session() as session:
+            existing_ids = set(await get_existing_ids(session))
 
-        try:
-            for item_id in item_ids.tolist():
-                futures.append(executor.submit(get_item_by_id, item_id))
+        if not update_existing:
+            num_original = len(item_ids)
 
+            item_ids = [item_id for item_id in item_ids if item_id not in existing_ids]
+
+            print(
+                f"Skipping {num_original - len(item_ids):,} items as they already exist in the database"
+            )
+
+        with tqdm(total=len(item_ids)) as pbar:
             success = failure = 0
             num_uncommitted = 0
+            merges = []
 
-            for future in as_completed(futures):
+            async with make_session() as session:
                 try:
-                    item_dict = future.result()
-                    item = HackerNewsItem(
-                        parent_id=item_dict.pop("parent", None),
-                        **utils.remove_keys(item_dict, ["kids", "parts", "parent"]),
-                    )
-                    session.add(item)
-                    
-                    success += 1
-                    num_uncommitted += 1
+                    async for item_dict in utils.fetch_items(
+                        hn, item_ids, concurrent_tasks=concurrent_workers
+                    ):
+                        try:
+                            item = HackerNewsItem(
+                                parent_id=item_dict.pop("parent", None),
+                                **utils.remove_keys(item_dict, ["kids", "parts", "parent"]),
+                            )
+
+                            if item.id in existing_ids:
+                                merges.append(session.merge(item))
+                            else:
+                                session.add(item)
+
+                            success += 1
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception as e:
+                            if log_errors:
+                                print(f"Error with item {item.id}: {e}")
+                            failure += 1
+
+                        num_uncommitted += 1
+
+                        if commit_every and num_uncommitted % commit_every == 0:
+                            if merges:
+                                await asyncio.gather(*merges)
+                                merges.clear()
+                            await session.commit()
+                            num_uncommitted = 0
+
+                        pbar.set_postfix(OrderedDict(ok=success, fail=failure))
+                        pbar.update(1)
                 except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    failure += 1
+                    pass
+                finally:
+                    if merges:
+                        await asyncio.gather(*merges)
 
-                    if log_errors:
-                        print(f"Error: {str(e)}")
-
-                if num_uncommitted % commit_every == 0:
-                    num_uncommitted = 0
-                    session.commit()
-
-                pbar.set_postfix(OrderedDict(ok=success, fail=failure))
-                pbar.update(1)
-        except KeyboardInterrupt:
-            print("Cancelling all futures")
-
-            for future in futures:
-                future.cancel()
-        finally:
-            session.commit()
+                    await session.commit()
 
 
 def main(
     db: str = "sqlite:///hackernews.db",
-    parallel_downloads: int = 16,
+    concurrent_workers: int | None = 64,
     max_items: int | None = None,
     min_item_id: int | None = None,
     descending: bool = True,
-    ignore_existing: bool = True,
-    commit_every: int = 1024,
+    update_existing: bool = False,
+    commit_every: int = 10_000,
     log_errors: bool = False,
 ):
-    engine = create_engine(db)
-    SQLModel.metadata.create_all(engine)
+    async def _main():
+        engine = AsyncEngine(create_engine(db))
 
-    try:
-        download(
-            db=engine,
-            parallel_downloads=parallel_downloads,
-            max_items=max_items,
-            min_item_id=min_item_id,
-            descending=descending,
-            ignore_existing=ignore_existing,
-            commit_every=commit_every,
-            log_errors=log_errors,
-        )
-    finally:
-        engine.dispose()
+        async with engine.begin() as conn:
+            # init db
+            await conn.run_sync(SQLModel.metadata.create_all)
+
+        try:
+            await download(
+                db=engine,
+                concurrent_workers=concurrent_workers,
+                max_items=max_items,
+                min_item_id=min_item_id,
+                descending=descending,
+                update_existing=update_existing,
+                commit_every=commit_every,
+                log_errors=log_errors,
+            )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_main())
 
 
 def run():

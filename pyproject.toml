@@ -1,11 +1,13 @@
 [project]
 name = "hackernews-dl"
-version = "0.1.0"
+version = "0.1.1"
 description = "Simple Python script to download Hackernews items to a SQL database"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.11.11",
+    "asyncpg>=0.30.0",
+    "psycopg2>=2.9.10",
     "sqlmodel>=0.0.22",
     "tqdm>=4.67.1",
     "typer>=0.15.1",
@@ -16,3 +18,8 @@ hackernews-dl = "hackernews_dl.download:run"
 
 [tool.ruff]
 line-length = 100
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.6",
+]
